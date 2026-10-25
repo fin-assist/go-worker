@@ -350,3 +350,10 @@ FIN-211: dependency-only Renovate PRs may be merged/closed by the reviewed `reno
 - No service business jobs/distributed locks are implemented here. Services own idempotency and cross-pod coordination.
 - This repository is strictly subject to all three total80 gates. Fixed original-template identity in check-suite.sh stays unchanged.
 - For FIN-252 request only Codex review; owner confirmed Claude quota exhausted. No merge, tags or controller changes.
+
+## Renovate early-off contract (FIN-260)
+
+- Only exact lowercase true admits the privileged controller job. Keep the independent gate free of secrets, Environment and checkout, with empty permissions.
+- Disabled ordinary CLI returns before credentials, files or API; explicit bootstrap remains credential-required and never activates automation.
+- Own preset bootstrap/protection is an owner operation before runtime merge. Activation requires a separate owner command; do not modify controller settings in this PR.
+- For FIN-252/FIN-260 request only Codex review; Claude quota remains exhausted.

@@ -57,7 +57,7 @@
 
 Проверка опубликованных refs настоящим resolver: `RENOVATE_RUNTIME=<temporary npm prefix> node scripts/verify_renovate_presets.mjs`; ограничить процесс 180 секундами. Для повышения API-лимита можно передать отдельный read credential в `RENOVATE_TOKEN`; код его не выводит.
 
-При `RENOVATE_POLICY_ENABLED` не равном `true` контроллер синхронизирует baseline и цель, затем заканчивает работу без чтения PR и без merge/retry/close. Для config sync тоже требуется доступный этому job `RENOVATE_POLICY_TOKEN` (в текущей настройке organization secret); отсутствие секрета — видимая ошибка workflow.
+FIN-260: только точное значение `RENOVATE_POLICY_ENABLED=true` допускает controller job. Непривилегированный gate с `permissions: {}` проверяет значение до Environment, secrets и checkout; `TRUE`, `True`, `false` и отсутствие переменной дают disabled. Обычный CLI при любом другом значении завершается до чтения credentials/config/event и до любых API-запросов, включая config sync. Явный `--bootstrap` работает отдельно от activation и всегда требует `RENOVATE_POLICY_TOKEN`; он не включает контроллер. Собственную preset-ветку и её защиту владелец подготавливает до runtime merge; включение возможно только отдельной командой владельца после проверки prerequisites.
 
 Разрешённые обновления GitHub Actions тоже могут сливаться после проверки подписанных Renovate commits и обязательного CI. Это доверие к установленному Renovate и разрешённым обновлениям зависимостей: обновлённый action затем выполняется в default branch с её credentials. Main-only Environment ограничивает controller job; выбранный organization secret не изолирован от других workflows выбранных репозиториев. Обновлённый dependency action в main также остаётся доверенным кодом.
 

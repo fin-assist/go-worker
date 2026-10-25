@@ -10,6 +10,8 @@
 
 ### Изменено
 
+- FIN-260: непривилегированный exact-true gate останавливает выключенный Renovate controller до Environment/secrets/checkout; CLI завершает работу до credentials/config/event/API. Явный bootstrap остаётся отдельным действием с обязательным credential, без активации. Runtime библиотеки и coverage не менялись.
+
 - FIN-252: Every возвращает (Job,error) и валидирует конфигурацию; Run принимает Options и возвращает ctx.Err вместо void. Mutable RestartDelay заменён настройкой с прежним default5s. Error/panic payload/stack в журнале заменены безопасной reason classification. Starter migration metadata и PostgreSQL helper/dependencies удалены: библиотека не владеет БД.
 
 - FIN-247: только исходный пустой go-library-template сообщает N/A для coverage после обязательного успешного выполнения всех трёх наборов. При появлении production statements автоматически действуют прежние total80; новые библиотеки не наследуют исключение. Проверки suites, required go, защиты и Controller Renovate сохранены; runtime и публичный API не менялись.
