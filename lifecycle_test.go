@@ -75,8 +75,39 @@ func TestIntegrationRealScheduleContinuesAfterError(t *testing.T) {
 	if err := worker.Run(ctx, options(), job); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	if n.Load() < 3 {
-		t.Fatal("schedule stopped after error")
+	// The third call cancels: fewer calls means errors stopped the schedule, more means
+	// an iteration started after cancellation (FIN-265).
+	if got := n.Load(); got != 3 {
+		t.Fatalf("want exactly 3 iterations, got %d", got)
+	}
+}
+
+func TestIntegrationRealScheduleStopsOnCancellationWithPendingTick(t *testing.T) {
+	const interval = time.Millisecond
+	// Without the post-tick context check select picks the pending tick about half of
+	// the time; repetitions make a regression fail with near certainty.
+	for range 50 {
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		job, err := worker.Every("slow-real", interval, logger(), worker.SystemClock{}, func(ctx context.Context) error {
+			if calls.Add(1) == 1 {
+				// Real time passes beyond the interval while the callback is held, so the
+				// stdlib ticker queues a tick before cancellation; no goroutine handoff
+				// depends on this wait.
+				<-time.After(20 * interval)
+				cancel()
+			}
+			return ctx.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := worker.Run(ctx, options(), job); !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("iteration started after cancellation: %d calls", got)
+		}
 	}
 }
 func TestIntegrationInvalidAssemblyStartsNothing(t *testing.T) { checkInvalidAssembly(t) }
