@@ -1,31 +1,11 @@
-# Проверки библиотеки и покрытие FIN-243
+# Проверки go-worker (FIN-252)
 
-## Уровни
+Unit: изолированный Clock с управляемыми каналами и наблюдаемым Stop. Проверяются all-or-nothing validation, прежний default5s, error/nil/panic restart, отсутствие restart без сигнала времени, отмена паузы, немедленная итерация Every, остановка ticker, отсутствие секретов в логах. Stdlib clock construction/Stop проверяется без ожидания времени.
 
-- Unit: изолированные функции и ветви без БД и сети, на фейках объявленных интерфейсов.
-- Integration: настоящие PostgreSQL18, миграции/транзакции/блокировки, transport и фоновые процессы там, где они есть.
-- API: публичный Go API со стороны потребителя; для stateful контрактов реальный PostgreSQL и транзакция вызывающего. Прямой вызов private реализации не становится API из-за имени теста. Примеры с Output исполняются в API, без Output компилируются, как раньше.
+Integration: реальные stdlib timers/tickers и запускаемые jobs. Независимые restart, ожидание удержанного cleanup после отмены, продолжение расписания после error. API: внешний пакет worker_test моделирует сервис с периодическим заданием и тремя независимо восстанавливаемыми consumers, проверяет cleanup и sanitized logs. Порядок задаётся каналами и ограниченными дедлайнами.
 
-TestUnit/TestIntegration/TestAPI и FuzzUnit/FuzzIntegration/FuzzAPI задают селекторы. Race inventory блокирует неклассифицированные Test/Fuzz до каждого сборщика; отдельный регрессионный тест запускает настоящий Go-модуль с Example, fuzz seed и race-only тестом. Собственного реестра тестов нет.
+Каждый набор отдельно instrumentирует весь production модуль через одинаковый Go package inventory. Только точный internal/pgtest разрешён как исключение общего библиотечного шаблона; здесь такой пакет удалён вместе со starter SQL metadata, зависимости БД отсутствуют. Все Test/Fuzz/Example сохраняются в inventory. Тесты с unit/integration/API prefix имеют независимые80% native statements gates, combined не заменяет их. Guard требует реально прошедший Test без skip/fail и валидный непустой профиль. N/A только для фиксированной исходной identity go-library-template; go-worker его не наследует. Никакой собственной математики coverage нет.
 
-## Команды и метрика
+make test/lint/cover/api запускаются с process timeout; compiler GOTOOLCHAIN=go1.26.0, native analyzer v2.20.1 с собственным auto toolchain. CI Python/regression, release/gorelease/migration/Renovate checks сохранены. Бизнес-задания сервисов не добавлены. Публичные callbacks должны соблюдать cancellation; отмена не может безопасно убить произвольную goroutine.
 
-`make collect-{unit,integration,api}` собирает отдельные JSONL и профили Go statements с race/count1/timeout. `make check-{unit,integration,api}` сначала проверяет execution evidence и профиль, затем запускает go-test-coverage/v2 v2.20.1 с total80. Принимается штатное округление79,95→80,0. `make cover` требует все три порога. `make cover-combined` объединяет исходные профили штатным comma-входом; результат информационный.
-
-Для всех трёх профилей инструментируется одинаковый список `go list -race ./...` за исключением только точного пакета `<module>/internal/pgtest` (решение владельца 25.10.2026). Тесты выполняются по всему `./...`, включая pgtest. Generated production code и остальные обычные `.go` helpers учитываются, одноимённые соседние и вложенные пакеты не исключаются. Сравнивать старые уникальные строки FIN-210 с новой statements-метрикой нельзя. Проценты/merge рассчитывает только готовый инструмент.
-
-Guard требует реально выполненный passing Test/Example/Fuzz event, отсутствие skipped/failed тестов и исполняемый statement block. Package skip при отсутствии тестов допустим; Test skip — нет. Пустой файл, отсутствующий, повреждённый и zero-statement профиль не даёт зелёный статус; исключение для точного header-only профиля исходного шаблона описано ниже. PostgreSQL без Docker/TEST_DATABASE_URL при CI=true — ошибка. Каждый агентский запуск также ограничивается process timeout.
-
-CI сохраняет unit/integration/API/combined reports, native breakdowns, JSONL и профили как artifacts. Его прежний required check `go` проверяет все шесть collector/check outcomes; промежуточный continue-on-error не скрывает ошибку. Права только read, комментариев coverage нет, fork PR сохраняет ограничения. Job `api` по-прежнему означает gorelease compatibility и не заменяет API-тесты.
-
-`make test`, `make lint`, `make api` выполняются до публикации. Release/CHANGELOG/migrations и определения Renovate checks сохранены. В FIN-245 controller временно приостанавливался, затем по отдельной команде владельца вновь включён. FIN-247 не меняет флаг, защиты или quarantine: валидный N/A устраняет причину постоянно красного coverage только в пустом библиотечном шаблоне. Реальное падение любого required check по-прежнему блокирует merge; controller действует по прежним правилам retry/close. См. docs/renovate-policy.md. Новые версии и теги не создаются.
-
-## Граница шаблона
-
-У шаблона нет бизнес-функций: публичны только metadata и embedded источник миграций без SQL. API-тест проверяет этот контракт потребителя без фиктивного приложения/БД. Интеграционный migration test не пропускается: реальный runner на PostgreSQL проверяет пустой источник без SQL-пустышек. `internal/pgtest` остаётся единственным исполняемым обычным Go-файлом; его unit/integration тесты не являются реализацией будущей библиотеки.
-
-Решение владельца FIN-247: только исходный `fin-assist/go-library-template` получает **N/A** вместо ошибки на точном профиле `mode: atomic\n` без блоков после успешного suite. Analyzer для такого профиля не запускается: 0/0 не выдаётся за 100%. Отсутствующий, пустой файл, другой mode, повреждённый профиль и блоки с нулём statements не подходят. JSONL проверяется до исключения: реально выполненный Test/Example/Fuzz, отсутствие skips/failures обязательны во всех трёх наборах.
-
-В Actions ограничитель использует `GITHUB_REPOSITORY`, локально — точный git origin исходного шаблона (HTTPS/SSH). Новая библиотека не получает N/A, даже если ещё сохранила module path шаблона. При создании библиотеки фиксированную идентичность в guard не менять; origin направить на новый репозиторий. Отсутствие/неизвестность идентичности отклоняет пустой профиль.
-
-Первый исполняемый production statement автоматически активирует штатные total80 unit/integration/API, без ручного флага. Непокрытые statements дают красный gate. Combined — N/A только для трёх валидных N/A профилей; смешанные пустые/непустые профили отклоняются как несогласованный знаменатель. N/A записывается отдельно по каждому уровню и combined в отчётах/summary/artifacts; required go требует успеха всех шести collector/check outcomes. Остальные библиотеки и сервисный шаблон не меняются. Регрессионный lifecycle с настоящими Go collectors и закреплённым analyzer проверяет N/A → появление непокрытой функции/FAIL → покрытие/PASS, а также клон с прежним module path, сломанный suite и смешанные профили.
+Локальная проверка compiler go1.26.0 darwin/amd64: unit100% (42/42), integration97.6% (41/42), API100% (42/42), combined100% (42/42), pinned native v2.20.1. make test/lint/cover/api и actionlint прошли с process timeout;134 Python regressions сохранены. CI на Linux проверяет текущий опубликованный head отдельно.

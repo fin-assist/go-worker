@@ -53,7 +53,7 @@
 
 Официальные источники: [preset и ref](https://docs.renovatebot.com/config-presets/), [шаблоны metadata](https://docs.renovatebot.com/templates/), [закрытые major/group PR](https://docs.renovatebot.com/key-concepts/pull-requests/), [Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/), [config](https://docs.renovatebot.com/configuration-options/), [merge REST API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request).
 
-Опубликованные presets: [config-only ветка](https://github.com/fin-assist/go-library-template/tree/renovate-policy).
+Для go-worker собственные presets публикуются владельцем в config-only ветке renovate-policy при bootstrap; до этой операции local refs ещё не означают готовность контроллера.
 
 Проверка опубликованных refs настоящим resolver: `RENOVATE_RUNTIME=<temporary npm prefix> node scripts/verify_renovate_presets.mjs`; ограничить процесс 180 секундами. Для повышения API-лимита можно передать отдельный read credential в `RENOVATE_TOKEN`; код его не выводит.
 
@@ -73,10 +73,7 @@ Install scripts отключены намеренно: в этом fixture от�
 
 Обычный failed-value gate действует только при отсутствующем/null newDigest, а tag-scoped digest recovery — только при существующем ненулевом newDigest. Эти два fixed JSONata predicates строго allowlisted. Recovery/quarantine имеют разные identities и recovery всегда применяется раньше: закрытый переход на tag18 не скрывает будущий исправленный digest того же tag после ручного обновления базы. Нормальный failed tag и точный failed digest сохраняют независимые approval gates.
 
-## Пустой библиотечный шаблон и coverage FIN-243
 
-В шаблоне нет исполняемого production-кода после согласованного исключения только internal/pgtest. По решению FIN-247 только исходный fin-assist/go-library-template сообщает N/A на точный header-only профиль после реально выполненного успешного suite без skips/failures. Все три набора, lint, миграции и прочие проверки обязательны; при появлении production statements автоматически действуют три независимых порога80. Созданные из шаблона библиотеки не наследуют N/A даже с прежним module path. См. [testing.md](testing.md). `go` остаётся и в requiredChecks, и в ciChecks контроллера: dependency-only обновление подчиняется тем же проверкам.
+## go-worker
 
-До FIN-247 пустой профиль делал required go постоянно красным, а при RENOVATE_POLICY_ENABLED=true controller после одного retry закрывал бы dependency-only PR и помещал версии в exact quarantine. 25.10.2026 в FIN-245 владелец сначала разрешил операционную паузу в библиотечном шаблоне и трёх сервисных каркасах, затем отдельно поручил вернуть true; включение и успешные controller runs зафиксированы в FIN-245. Этот PR не меняет флаг, защиты, существующие PR или quarantine. Состояние переменной проверяется в GitHub, документация не подтверждает её текущее значение.
-
-У go-service-template, analytics и bank-statement-data после FIN-238 есть исполняемый код и недостигнутые пороги: N/A к ним не применяется. При включённом controller реальные failures по-прежнему приводят к retry/close/quarantine по FIN-211. Пауза, восстановление и controller outcomes отслеживаются в [FIN-245](https://finassist.youtrack.cloud/issue/FIN-245); повышение покрытия сервисного шаблона — [FIN-246](https://finassist.youtrack.cloud/issue/FIN-246). Защиты и пороги ради автомержа не ослабляются.
+Это новая исполняемая библиотека со строгими тремя total80 gates, без template N/A. Собственные local preset refs настроены на go-worker; перед активацией владелец должен bootstrap собственную renovate-policy ветку и проверить protections/environment/secret access по инструкции выше. Настройки контроллера, флаги и защиты в FIN-252 не меняются.

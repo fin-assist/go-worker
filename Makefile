@@ -8,7 +8,7 @@ export GOPRIVATE := github.com/fin-assist/*
 
 .PHONY: test test-names cover collect-unit collect-integration collect-api check-unit check-integration check-api cover-unit cover-integration cover-api cover-combined lint fmt api release-check
 
-test: test-names ## go.mod tidy, unit and integration tests (Docker or TEST_DATABASE_URL), script tests, changelog format
+test: test-names ## go.mod tidy, all lifecycle race tests, script tests, changelog format
 	go mod tidy -diff
 	go vet ./...
 	go test -race -count=1 -timeout=8m ./...
