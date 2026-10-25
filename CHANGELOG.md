@@ -4,11 +4,15 @@
 
 ## [Unreleased]
 
+## [v0.1.0] — 2026-10-25
+
 ### Добавлено
 
 - FIN-252: go-worker выделяет Job/Every/Run с явными Logger/Clock/restart settings, немедленным первым scheduled запуском, error/nil/panic restart и ожиданием cancellation cleanup. Три независимых statements gate80, unit/integration/public API tests и consumer guide.
 
 ### Изменено
+
+- FIN-254: подготовлен первый выпуск go-worker v0.1.0; накопленные изменения зафиксированы в версии. Публикация выполняется после слияния release PR и отдельного тега владельца.
 
 - FIN-260: непривилегированный exact-true gate останавливает выключенный Renovate controller до Environment/secrets/checkout; CLI завершает работу до credentials/config/event/API. Явный bootstrap остаётся отдельным действием с обязательным credential, без активации. Runtime библиотеки и coverage не менялись.
 
