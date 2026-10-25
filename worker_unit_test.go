@@ -252,3 +252,65 @@ func TestUnitEveryCancelledContextRetainsFirstIteration(t *testing.T) {
 	}
 	receive(t, receive(t, clock.tickers).stopped)
 }
+
+func TestUnitEveryRetainsPendingTickDuringSlowFirstIteration(t *testing.T) {
+	clock := newClock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	release := make(chan struct{})
+	first := make(chan *signal, 1)
+	next := make(chan int32, 1)
+	var calls, active atomic.Int32
+	var overlapped atomic.Bool
+	job, err := worker.Every("slow-first", time.Minute, logger(), clock, func(ctx context.Context) error {
+		if active.Add(1) != 1 {
+			overlapped.Store(true)
+		}
+		defer active.Add(-1)
+		n := calls.Add(1)
+		if n == 1 {
+			// This observation happens inside the first callback: construction after
+			// that callback would report nil instead of silently changing the schedule.
+			select {
+			case ticker := <-clock.tickers:
+				first <- ticker
+			default:
+				first <- nil
+			}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			return nil
+		}
+		next <- n
+		cancel()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- job.Run(ctx) }()
+	ticker := receive(t, first)
+	if ticker == nil {
+		t.Fatal("ticker must exist before the first callback")
+	}
+	ticker.c <- time.Time{} // A tick arrives while the first callback is still blocked.
+	if calls.Load() != 1 || overlapped.Load() {
+		t.Fatal("concurrent scheduled iteration")
+	}
+	close(release)
+	// Do not advance the clock again: the tick held during the first call must suffice.
+	if n := receive(t, next); n != 2 {
+		t.Fatalf("pending tick started call %d", n)
+	}
+	if err := receive(t, done); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, ticker.stopped)
+	if calls.Load() != 2 || active.Load() != 0 || overlapped.Load() {
+		t.Fatal("schedule overlapped or retained a running callback")
+	}
+}
