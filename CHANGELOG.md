@@ -1,6 +1,6 @@
 # Изменения
 
-Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии и выпуск — [docs/releasing.md](docs/releasing.md). Каждый PR, который меняет API или поведение библиотеки, добавляет строку в «Unreleased»; при выпуске раздел получает номер версии и дату.
+Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии и выпуск — [docs/releasing.md](docs/releasing.md). Каждый PR библиотеки, включая документацию, тесты и CI, добавляет строку в «Unreleased»; исключение — полностью ботские PR Renovate только с зависимостями, их сводку по `go.mod` добавляет PR выпуска. При выпуске раздел получает номер версии и дату.
 
 ## [Unreleased]
 
@@ -10,6 +10,7 @@
 
 ### Изменено
 
+- FIN-338 (FIN-308, FIN-309): перенесены из go-library-template запреты `forbidigo`/`depguard` FIN-294 (глобальные логгеры, реестр метрик, `http`/`otel`, `os/signal`, окружение, `flag`, стандартные потоки, временный и рабочий каталоги, настройки runtime) с `scripts/test_lint_policy.py`, защита CI FIN-301 (`persist-credentials: false` в `lint`, `api`, `migrations`, `base_ref` через окружение) с `scripts/test_workflow_hardening.py`, правила `docs/releasing.md` и вступления CHANGELOG FIN-307 (строка в `[Unreleased]` от каждого PR, PR выпуска с ключом FIN и сводкой `go.mod`). Код библиотеки новым запретам уже соответствовал; runtime и экспортируемый API не менялись.
 - FIN-316: из `AGENTS.md` (контракты FIN-252 и FIN-260) убрано временное правило запрашивать ревью только у Codex: квота Claude восстановлена, ревью снова запрашивается одним комментарием `@codex @claude` по общему правилу Workflow. Остальные условия контрактов сохранены; runtime и API библиотеки не менялись.
 
 ## [v0.1.0] — 2026-10-25
