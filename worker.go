@@ -80,7 +80,8 @@ func runJob(ctx context.Context, j Job) (reason string) {
 // Every constructs a sequential scheduled job. Its first iteration starts immediately,
 // including with an already cancelled context, as in the service worker it replaces.
 // Later iterations follow a ticker started before that first call; slow calls coalesce
-// ticks according to Clock. Iteration errors do not stop the schedule; panics reach Run
+// ticks according to Clock; no later iteration starts once ctx is cancelled, even when a
+// tick is already pending. Iteration errors do not stop the schedule; panics reach Run
 // for restart. fn must honor cancellation. No goroutine starts until Job.Run is called.
 // A single returned job may run concurrently only if fn and dependencies permit it.
 func Every(name string, interval time.Duration, logger *slog.Logger, clock Clock, fn func(context.Context) error) (Job, error) {
@@ -98,6 +99,11 @@ func Every(name string, interval time.Duration, logger *slog.Logger, clock Clock
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C():
+				// A tick queued during a slow iteration races with cancellation in
+				// select; cancellation must win so no call starts after shutdown.
+				if ctx.Err() != nil {
+					return nil
+				}
 			}
 		}
 	}}, nil

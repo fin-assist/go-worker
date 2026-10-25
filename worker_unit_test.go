@@ -3,6 +3,7 @@ package worker_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -313,4 +314,147 @@ func TestUnitEveryRetainsPendingTickDuringSlowFirstIteration(t *testing.T) {
 	if calls.Load() != 2 || active.Load() != 0 || overlapped.Load() {
 		t.Fatal("schedule overlapped or retained a running callback")
 	}
+}
+
+func TestUnitEveryCancellationWinsOverPendingTick(t *testing.T) {
+	// A slow iteration lets a tick queue up; cancellation during that iteration must stop
+	// the schedule even though both select cases are ready. Repeat to defeat select's
+	// random choice instead of relying on timing.
+	for range 200 {
+		clock := newClock()
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		var logs bytes.Buffer
+		job, err := worker.Every("slow", time.Minute, slog.New(slog.NewTextHandler(&logs, nil)), clock, func(ctx context.Context) error {
+			if calls.Add(1) == 1 {
+				ticker := receive(t, clock.tickers)
+				ticker.c <- time.Time{}
+				cancel()
+			}
+			return ctx.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := job.Run(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if n := calls.Load(); n != 1 {
+			t.Fatalf("iteration ran after cancellation: %d calls", n)
+		}
+		if logs.Len() != 0 {
+			t.Fatal("iteration error after cancellation was logged", logs.String())
+		}
+	}
+}
+
+func TestUnitEveryLogsBoundedIterationFailure(t *testing.T) {
+	clock := newClock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var logs bytes.Buffer
+	calls := make(chan struct{}, 3)
+	var n atomic.Int32
+	job, err := worker.Every("partition-check", time.Minute, slog.New(slog.NewJSONHandler(&logs, nil)), clock, func(ctx context.Context) error {
+		calls <- struct{}{}
+		if n.Add(1) == 3 {
+			// Entering the third call proves both earlier failures were logged; its
+			// own failure follows cancellation and must not be logged.
+			<-ctx.Done()
+		}
+		return errors.New("private-payload")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- job.Run(ctx) }()
+	ticker := receive(t, clock.tickers)
+	receive(t, calls)
+	for range 2 {
+		ticker.c <- time.Time{}
+		receive(t, calls)
+	}
+	cancel()
+	if err := receive(t, done); err != nil {
+		t.Fatal(err)
+	}
+	records := decodeLogs(t, &logs)
+	if len(records) != 2 {
+		t.Fatalf("want one record per failed iteration, got %d: %v", len(records), records)
+	}
+	for _, r := range records {
+		if r["level"] != "ERROR" || r["msg"] != "job iteration failed" || r["job"] != "partition-check" || r["reason"] != "error" {
+			t.Fatalf("iteration log contract: %v", r)
+		}
+	}
+	if strings.Contains(logs.String(), "private-payload") {
+		t.Fatal("iteration error leaked")
+	}
+}
+
+func TestUnitRunLogsBoundedRestartReason(t *testing.T) {
+	for mode, reason := range map[string]string{"error": "error", "nil": "returned", "panic": "panic"} {
+		t.Run(mode, func(t *testing.T) {
+			clock := newClock()
+			var logs bytes.Buffer
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var calls atomic.Int32
+			entered := make(chan struct{})
+			job := worker.Job{Name: "consumer", Run: func(ctx context.Context) error {
+				if calls.Add(1) > 1 {
+					close(entered)
+					<-ctx.Done()
+					return errors.New("after-cancel")
+				}
+				switch mode {
+				case "error":
+					return errors.New("secret-token")
+				case "panic":
+					panic("secret-token")
+				}
+				return nil
+			}}
+			done := make(chan error, 1)
+			go func() {
+				done <- worker.Run(ctx, worker.Options{Logger: slog.New(slog.NewJSONHandler(&logs, nil)), Clock: clock, RestartDelay: 3 * time.Second}, job)
+			}()
+			timer := receive(t, clock.timers)
+			timer.c <- time.Time{}
+			receive(t, timer.stopped)
+			// Cancel only once the restarted run is inside Job.Run, so its post-cancel
+			// error really reaches the supervisor's cancellation check.
+			receive(t, entered)
+			cancel()
+			if !errors.Is(receive(t, done), context.Canceled) {
+				t.Fatal("shutdown")
+			}
+			records := decodeLogs(t, &logs)
+			if len(records) != 1 {
+				t.Fatalf("want exactly one restart record (none after cancellation), got %v", records)
+			}
+			r := records[0]
+			if r["level"] != "ERROR" || r["msg"] != "job stopped, restarting" || r["job"] != "consumer" || r["reason"] != reason || r["delay"] != float64(3*time.Second) {
+				t.Fatalf("restart log contract: %v", r)
+			}
+			if strings.Contains(logs.String(), "secret-token") {
+				t.Fatal("payload leaked")
+			}
+		})
+	}
+}
+
+func decodeLogs(t *testing.T, logs *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var records []map[string]any
+	dec := json.NewDecoder(logs)
+	for dec.More() {
+		var r map[string]any
+		if err := dec.Decode(&r); err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, r)
+	}
+	return records
 }
