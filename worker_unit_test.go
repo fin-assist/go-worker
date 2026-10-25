@@ -401,8 +401,10 @@ func TestUnitRunLogsBoundedRestartReason(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			var calls atomic.Int32
+			entered := make(chan struct{})
 			job := worker.Job{Name: "consumer", Run: func(ctx context.Context) error {
 				if calls.Add(1) > 1 {
+					close(entered)
 					<-ctx.Done()
 					return errors.New("after-cancel")
 				}
@@ -421,6 +423,9 @@ func TestUnitRunLogsBoundedRestartReason(t *testing.T) {
 			timer := receive(t, clock.timers)
 			timer.c <- time.Time{}
 			receive(t, timer.stopped)
+			// Cancel only once the restarted run is inside Job.Run, so its post-cancel
+			// error really reaches the supervisor's cancellation check.
+			receive(t, entered)
 			cancel()
 			if !errors.Is(receive(t, done), context.Canceled) {
 				t.Fatal("shutdown")
