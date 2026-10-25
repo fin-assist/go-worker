@@ -1,8 +1,5 @@
-// Package library is the template of a «Понятные финансы» Go library
-// (fin-assist/go-library-template).
-//
-// A library made from the template renames the package after itself (outbox, tombstone,
-// identity, ...) and replaces this comment with what the library does, what it needs from
-// the service (a transaction, a gRPC server, a clock) and where the integration guide is
-// (README.md, «Внедрение»).
-package library
+// Package worker supervises cooperative service-owned background jobs. Run waits
+// for cancellation cleanup, restarts failed loops and contains panics. Every runs
+// immediate-first periodic work. Callers inject their logger, clock and restart
+// policy; jobs remain responsible for distributed locking and idempotent effects.
+package worker

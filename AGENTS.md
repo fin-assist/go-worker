@@ -1,10 +1,9 @@
 # Instructions for code agents
 
-A Go library of «Понятные финансы» (B2C personal finance: OFX statement import from T-Bank, operations, analytics,
-LLM assistant), made from `fin-assist/go-library-template`. The Go services (`bank-bff`, `user`,
-`bank-statement-data`, `analytics`, `assistant`, made from `fin-assist/go-service-template`) import it at a tagged
-version. Read by Claude Code (through `CLAUDE.md`) and by Codex. This file is the orientation map: read it and
-`README.md` first, then open only what the task touches.
+`go-worker` supervises cooperative background jobs for «Понятные финансы» (FIN-252, epic FIN-248).
+Extracted from go-service-template internal/worker; consumers adopt it in separate service tasks.
+Read README.md before changing the public lifecycle/clock contract. No database, RPC, migrations or service jobs
+belong in this module. Bank-bff is outside this extraction.
 
 ## Keep this file current
 
@@ -35,8 +34,8 @@ for itself: what it does, its YouTrack issue, which services use it.
 | Package documentation: what the library does, what it needs from the service | `doc.go` |
 | Public API of the library | root package (`*.go`); subpackages only for parts with different consumers |
 | Implementation details | `internal/` |
-| Migration source for the service runner (`Migrations`, `MigrationsName`, `MigrationsTable`) | `migrations.go`, `migrations/` |
-| PostgreSQL for tests, up → down → up check | `internal/pgtest/` (mirrors `migratetest` of the service template) |
+| Cooperative supervision, scheduling and injected dependencies | `worker.go`, `clock.go` |
+| Deterministic clock tests; real lifecycle tests; external consumer API | `worker_unit_test.go`, `lifecycle_test.go`, `consumer_api_test.go` |
 | Integration guide for services | `README.md`, «Внедрение» |
 | Versions, compatibility, releases, Renovate | `docs/releasing.md`, `CHANGELOG.md`, `.github/workflows/release.yml`, `renovate.json` |
 | Independent statements coverage guards and changelog checks | `scripts/` |
@@ -45,10 +44,8 @@ for itself: what it does, its YouTrack issue, which services use it.
 
 ### Stack
 
-Versions are in `go.mod` (Go toolchain included), `.github/workflows/ci.yml` and `Makefile` (golangci-lint,
-gorelease), `internal/pgtest.DefaultImage` (PostgreSQL). The same pieces as the services where needed: pgx v5,
-golang-migrate, grpc-go, protobuf, prometheus client_golang, testcontainers-go, squawk. A new dependency is named in
-the PR with why it is needed: every service that imports the library inherits it.
+Go standard library only. Go/compiler, pinned analyzer, linter and gorelease versions are in go.mod/Makefile/CI.
+The module has no PostgreSQL helper or SQL. Existing Python CI/release/coverage regressions remain mandatory.
 
 ## Build in an agent container
 
@@ -342,3 +339,21 @@ identifier, behaviour, migration and dependency check:
 ## Renovate automation
 
 FIN-211: dependency-only Renovate PRs may be merged/closed by the reviewed `renovate-policy.yml` controller, after exact-head required CI and bot-only commit checks. Ordinary PRs and release-to-main PRs still require the owner. Do not enable native automerge or bypass protections. Preserve base policy in `renovate-base.json` (schedules, groups, allowed versions and manual Go upgrades); generated target/version approvals live on the separate `renovate-policy` branch. Failed exact values are isolated for explicit Dashboard approval; new values keep their original groups. AndroidX/Compose and mixed groups never auto-merge. See `docs/renovate-policy.md` for credentials, safeguards, bootstrap and verification.
+
+## go-worker lifecycle contract (FIN-252)
+
+- Explicit caller-owned Logger, Clock and restart delay; zero delay preserves five seconds. No mutable RestartDelay.
+- Run validates the whole batch before starting goroutines, joins all cooperative cleanup and returns ctx.Err().
+- Every first iteration is immediate; ticker starts before it, errors continue on schedule, panics restart via Run.
+- Job names are bounded operator configuration. Log fixed reasons only, never arbitrary job errors/panic payloads.
+- Clock ports are for deterministic scheduling tests, not generic factories or runtime registries. SystemClock is stdlib.
+- No service business jobs/distributed locks are implemented here. Services own idempotency and cross-pod coordination.
+- This repository is strictly subject to all three total80 gates. Fixed original-template identity in check-suite.sh stays unchanged.
+- For FIN-252 request only Codex review; owner confirmed Claude quota exhausted. No merge, tags or controller changes.
+
+## Renovate early-off contract (FIN-260)
+
+- Only exact lowercase true admits the privileged controller job. Keep the independent gate free of secrets, Environment and checkout, with empty permissions.
+- Disabled ordinary CLI returns before credentials, files or API; explicit bootstrap remains credential-required and never activates automation.
+- Own preset bootstrap/protection is an owner operation before runtime merge. Activation requires a separate owner command; do not modify controller settings in this PR.
+- For FIN-252/FIN-260 request only Codex review; Claude quota remains exhausted.

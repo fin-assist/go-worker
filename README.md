@@ -1,90 +1,53 @@
-# go-library-template
+# go-worker
 
-Шаблон репозитория Go-библиотеки «Понятных финансов» ([FIN-118](https://finassist.youtrack.cloud/issue/FIN-118)). Из него создаются `go-idempotency` ([FIN-78](https://finassist.youtrack.cloud/issue/FIN-78)), `go-outbox` ([FIN-109](https://finassist.youtrack.cloud/issue/FIN-109)), `go-tombstone` ([FIN-110](https://finassist.youtrack.cloud/issue/FIN-110)), `go-identity` ([FIN-119](https://finassist.youtrack.cloud/issue/FIN-119)) и следующие. Сервисы — из [`fin-assist/go-service-template`](https://github.com/fin-assist/go-service-template), контракты и `finerr` — в [`fin-assist/contracts`](https://github.com/fin-assist/contracts).
-
-- [docs/releasing.md](docs/releasing.md) — версии, что несовместимо, CHANGELOG, выпуск, миграции, Renovate.
-- [CHANGELOG.md](CHANGELOG.md) — изменения по версиям.
-- [AGENTS.md](AGENTS.md) — карта и правила для агентов, Code Review Rules.
-
-## Автоматизация обновлений зависимостей
-
-[Политика Renovate](docs/renovate-policy.md) (FIN-211): одна актуальная release/main, автомерж полностью ботских PR после обязательного CI, один повтор красного CI и закрытие с явным повтором через Dependency Dashboard. AndroidX/Compose остаются на ручной проверке. Исходные группировки, ограничения версий и расписания — `renovate-base.json`; generated target и quarantine — ветка `renovate-policy`. Активация требует отдельного токена и строгой защиты веток; по умолчанию выключена.
-
-## Новая библиотека из шаблона
-
-1. Создать репозиторий `fin-assist/go-<назначение>` из шаблона (GitHub → «Use this template») или влить шаблон в уже созданный.
-2. Заменить модуль и пакет: `go mod edit -module github.com/fin-assist/go-<назначение>`, пути импорта в Go-файлах, `package library` → `package <назначение>` в корневых файлах, `MigrationsName` в `migrations.go`. Не заменять имя исходного репозитория в `scripts/check-suite.sh`: это ограничитель исключения N/A, который новая библиотека не наследует. При локальном клонировании сменить `origin` на новый репозиторий перед проверками; в Actions проверяется `GITHUB_REPOSITORY`.
-3. Библиотека без таблиц удаляет `migrations.go`, `migrations_test.go` и каталог `migrations/`; без gRPC — ничего не добавляет.
-4. Если библиотека строит ошибки для клиентов — `go get github.com/fin-assist/contracts/gen/go@<версия>` и конструкторы `finerr`.
-5. Переписать первый абзац этого README, раздел «Внедрение» ниже и первый абзац `AGENTS.md`.
-6. Секреты репозитория: `CLAUDE_CODE_OAUTH_TOKEN` (ревью `@claude`), `GO_MODULES_TOKEN` при приватных модулях. Claude GitHub App, Codex и Renovate стоят на организации.
-7. Первый выпуск — `v0.1.0` по [docs/releasing.md](docs/releasing.md).
-
-Перед первым запуском Renovate заменить **оба** `local>` ref в `renovate.json` на новый `fin-assist/<repo>`. GitHub template не копирует служебную ветку: создать собственную `renovate-policy` по [инструкции bootstrap](docs/renovate-policy.md#подготовка-и-включение), затем защитить её и настроить `controllerLogin`, обязательные checks и Environment `renovate-policy` с запуском только из `main` и доступ к organization secret `RENOVATE_POLICY_TOKEN` (выбранный владельцем вариант; новому репозиторию явно проверить доступность секрета). Проверить, что оба presets разрешаются из нового репозитория, а не из шаблона. До проверки оставить `RENOVATE_POLICY_ENABLED` выключенным; секреты, environments и branch protection из шаблона не наследуются.
-
-## Раскладка
-
-```
-doc.go               package documentation: what the library does and what it needs from the service
-migrations.go        Migrations, MigrationsName, MigrationsTable for the service's migration runner
-migrations/          SQL migrations of the library, embedded (NNN_name.up.sql / .down.sql)
-internal/pgtest/     PostgreSQL for tests and the up -> down -> up check, same rules as the service runner
-scripts/             independent suite guards, external coverage policy and CHANGELOG checks
-docs/releasing.md    versions and releases
-```
-
-Код библиотеки — в корневом пакете (импорт `github.com/fin-assist/go-outbox` даёт `outbox.Publish`); подпакеты — когда у частей разные потребители (`identity/grpcserver` и `identity/httpmw`), внутренние детали — в `internal/`.
+Библиотека lifecycle фоновых заданий «Понятных финансов» ([FIN-252](https://finassist.youtrack.cloud/issue/FIN-252), эпик FIN-248). Выделяет Job/Every/Run из internal/worker сервисного шаблона. Использует только стандартную библиотеку Go. Бизнес-задания, транзакции и распределённые блокировки остаются у сервисов; подключение сервисов выполняется отдельными задачами.
 
 ## Внедрение
 
-Раздел, который библиотека переписывает под себя: всё, что сервису нужно сделать, чтобы её подключить, по шагам и с кодом. Общий порядок:
+```go
+clock := worker.SystemClock{}
+job, err := worker.Every("partition-check", time.Minute, logger, clock, checkPartitions)
+if err != nil { return err }
+err = worker.Run(ctx, worker.Options{
+    Logger: logger,
+    Clock: clock,
+    RestartDelay: 5 * time.Second,
+}, job, worker.Job{Name: "outbox", Run: dispatcher.Run})
+if errors.Is(err, context.Canceled) { return nil }
+return err
+```
 
-1. `go get github.com/fin-assist/go-<назначение>@vX.Y.Z`.
-2. Миграции — источник в `MigrationSources()` (`internal/app/wire.go` сервиса), до источника сервиса:
+Импорт — `github.com/fin-assist/go-worker`, пакет worker. Версию выпускает владелец; теги в этом PR не создаются. Logger и Clock обязательны и должны быть concurrency-safe. SystemClock использует time.Timer/time.Ticker. RestartDelay=0 означает прежние пять секунд; отрицательное значение отклоняется.
 
-   ```go
-   {Name: outbox.MigrationsName, Table: outbox.MigrationsTable, FS: outbox.Migrations},
-   ```
+Job.Run обязан учитывать context, завершать собственные goroutines и cleanup до возврата. Run запускает задания независимо, ждёт каждое после отмены и возвращает ctx.Err(); принудительно прервать игнорирующий отмену callback невозможно. Пустой список возвращается сразу с текущим ctx.Err(). До старта проверяется весь список: пустое имя или nil-функция не допускают частичного запуска. Контекст должен быть ненулевым, как в стандартных context API.
 
-3. Сборка в `wire()`: конструктор библиотеки получает от сервиса всё, что ей нужно, — транзакцию через интерфейс `Tx(ctx) (pgx.Tx, bool)` (его реализует `postgres.DB` шаблона), `*slog.Logger`, `prometheus.Registerer`, часы, настройки. Своих глобальных объектов и переменных окружения у библиотеки нет.
-4. Интерцепторы, задания (`worker.Job`), обработчики — куда и в каком порядке.
-5. Чек-лист для нового метода, таблицы или эндпоинта сервиса, если библиотека его требует.
-6. Метрики и алерты, которые появляются у сервиса.
+Ошибка, преждевременный nil и panic перезапускают только соответствующее задание после паузы. Отмена во время паузы освобождает timer и не запускает следующую попытку. Ошибка после отмены не вызывает restart. Каждый Run имеет собственные supervisors и ждёт их: повторный или одновременный Run допустим только если сами переданные jobs безопасны для такого использования.
+
+Every создаёт Job без запуска goroutines. При вызове Job.Run ticker создаётся до первого немедленного вызова fn; это сохраняет исходную fixed-ticker семантику. Даже уже отменённый context не отменяет первый вызов при прямом Job.Run. Последующие вызовы последовательны, медленная итерация coalesces ticks по правилам time.Ticker; ошибка итерации не сдвигает расписание и не останавливает job. Panic обрабатывается supervisor Run. Каждый ticker останавливается при выходе, в том числе при panic. Интервал должен быть положительным; имя, fn, logger и clock обязательны.
+
+Имена заданий — ограниченная конфигурация владельца процесса, а не пользовательские данные. Журнал содержит name, delay и фиксированную reason (error/returned/panic). Произвольные ошибки, panic payload, stack, токены и финансовые данные не логируются. Никаких глобальных logger/registry/restart settings нет. Clock.NewTimer/NewTicker должны быть concurrency-safe, возвращать ненулевые signals и поддерживать Stop после firing; callback времени не является hook бизнес-логики.
+
+## Переход с internal/worker
+
+- Job{Name, Run} сохраняет структуру; бизнес-код callback не переносится в библиотеку.
+- Every теперь возвращает (Job, error), принимает явный Clock после logger и валидирует параметры до старта.
+- Вместо Run(ctx, logger, jobs...) используется Run(ctx, Options, jobs...) с обработкой результата. Возврат ctx.Err() — явное изменение прежнего void API; context.Canceled при штатном завершении обычно переводится сервисом в nil.
+- Mutable RestartDelay удалён. Прежний runtime default5s сохранён в Options; тесты получают собственный clock/delay без глобальных гонок.
+- Наблюдаемое изменение logging: сообщения сохраняют факты restart/iteration failure, но произвольный error/panic/stack заменён безопасной классификацией reason. Поля job/delay задаёт конфигурация сервиса.
 
 ## Проверки
 
-CI (`.github/workflows/ci.yml`):
-
-| Job | Что |
-|---|---|
-| `go` | tidy/vet, race inventory; независимые unit/integration/API statements-профили и total80 (N/A только у исходного пустого шаблона); проверки скриптов/CHANGELOG; отчёты и artifacts |
-| `lint` | golangci-lint (`.golangci.yml`): `forbidigo` против обхода `finerr` и против глобальных логгера, реестра метрик и переменных окружения; `depguard` против фреймворков |
-| `api` | `gorelease`: изменения экспортируемого API против последнего тега и предлагаемая версия; на PR выпуска — проверка номера из `CHANGELOG.md` |
-| `migrations` (PR) | существующие миграции не изменены, squawk по новым |
-
-Тег `vX.Y.Z` запускает `.github/workflows/release.yml`: проверка тега и GitHub Release с текстом из `CHANGELOG.md`. Повторный запуск сохраняет существующий Release; актуальную проверку старого тега можно запустить вручную из `main` по [инструкции](docs/releasing.md#выпуск).
-
-Локально:
-
-```bash
-make test          # Docker for testcontainers, or TEST_DATABASE_URL=postgres://... to use your PostgreSQL
+```sh
+make test
 make lint
-make cover         # independent unit/integration/API profiles and total80 gates
-make api           # API changes against the latest tag
-make release-check VERSION=v0.2.0
+make cover
+make api
 ```
 
-FIN-243: каждый из unit/integration/API независимо требует80% statements; combined не заменяет уровни. Модули `github.com/fin-assist/*` берутся из git, минуя прокси (`GOPRIVATE`, задан в `Makefile` и CI).
+Compiler Go1.26 из go.mod; analyzer отдельно GOTOOLCHAIN=auto, pinned go-test-coverage/v2 v2.20.1. Каждый unit/integration/API уровень независимо требует80% statements; combined информационный. Все instrumented production пакеты одинаковы, исключить можно только точный internal/pgtest (в этой библиотеке его нет). Тесты запускают весь ./..., race/count1/timeout, inventory защищает Test/Fuzz/Example. Только исходный go-library-template имеет N/A; фиксированная identity в scripts/check-suite.sh не меняется. go-worker строго отклоняет пустой профиль.
 
+Unit используют управляемые Clock/Timer/Ticker без БД/сети. Integration запускают реальные jobs/time и проверяют restart/cancel/join. API — внешний Go-потребитель с параллельными jobs, периодическим заданием и безопасными логами. Каналы и дедлайны задают порядок; sleeps не используются. Подробнее — [docs/testing.md](docs/testing.md).
 
-### Покрытие FIN-243
+CI сохраняет required go, lint, api (gorelease compatibility), migrations (PR), Python guards/release/CHANGELOG/Renovate tests и coverage artifacts. SQL и зависимостей БД нет. Release и Renovate-controller конфигурация наследуются; активация контроллера/защиты выполняется владельцем отдельно. До bootstrap own renovate-policy refs контроллер не включать. [Выпуск](docs/releasing.md), [политика Renovate](docs/renovate-policy.md).
 
-`make collect-unit`, `make collect-integration`, `make collect-api` собирают независимые профили штатным Go coverage. `make check-unit`, `make check-integration`, `make check-api` проверяют каждый профиль закреплённым go-test-coverage/v2 v2.20.1 с total80. Принимается округление79,95% до80,0%; `make cover-combined` строит дополнительное объединение штатными средствами инструмента.
-
-Все три набора выполняют `./...` и инструментируют одинаковые пакеты из `go list -race ./...`, исключая только точный пакет `<module>/internal/pgtest` по решению владельца 25.10.2026. Остальные обычные `.go` helpers и generated production code учитываются; тесты pgtest продолжают исполняться. Имена TestUnit/TestIntegration/TestAPI и FuzzUnit/FuzzIntegration/FuzzAPI проверяются race inventory до сборщика; исполняемые Example входят в API. Unit не использует БД/сеть, integration использует реальные зависимости, API проверяет публичный Go-контракт от лица потребителя. API не означает новый HTTP/gRPC сервис.
-
-Пустые/пропущенные/упавшие наборы и отсутствующие/пустые/повреждённые профили не проходят guard; недоступный PostgreSQL при CI=true — ошибка. Обязательный job `go` падает при любой ошибке одного из трёх уровней, даже если combined выше80. Отчёты и профили сохраняются в CI artifacts; fork PR не пишет комментарии. Собственного расчёта процентов и merge нет.
-
-FIN-247: только исходный `fin-assist/go-library-template` получает **N/A**, когда успешный suite сформировал точный профиль `mode: atomic` без блоков. Три набора по-прежнему обязаны выполнить тесты без skips/failures; lint, миграции и прочие проверки сохраняются. Идентичность проверяется по `GITHUB_REPOSITORY` в GitHub Actions, локально — по точному `origin` исходного шаблона. При появлении первого production statement автоматически включается штатный порог80 каждого уровня, в том числе при нуле покрытых statements. Combined получает N/A только при трёх валидных N/A профилях; смешанные пустые/непустые профили отклоняются. Созданные из шаблона библиотеки отклоняют пустой профиль даже до смены module path. `go-service-template` и остальные библиотеки сохраняют строгие правила.
-
-[docs/testing.md](docs/testing.md) описывает уровни и границы; актуальные проценты и невыполненные критерии указаны в PR.
+FIN-260: только точный `RENOVATE_POLICY_ENABLED=true` допускает привилегированный controller job. Выключенный CLI не читает credentials/config/event и не делает API-запросов. Явный `--bootstrap` требует credential независимо от activation; own presets и protection подготавливает владелец до runtime merge, включение выполняет отдельной командой. См. [порядок настройки](docs/renovate-policy.md).
