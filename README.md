@@ -51,3 +51,7 @@ Unit используют управляемые Clock/Timer/Ticker без БД/
 CI сохраняет required go, lint, api (gorelease compatibility), migrations (PR), Python guards/release/CHANGELOG/Renovate tests и coverage artifacts. SQL и зависимостей БД нет. Release и Renovate-controller конфигурация наследуются; активация контроллера/защиты выполняется владельцем отдельно. До bootstrap own renovate-policy refs контроллер не включать. [Выпуск](docs/releasing.md), [политика Renovate](docs/renovate-policy.md).
 
 FIN-260: только точный `RENOVATE_POLICY_ENABLED=true` допускает привилегированный controller job. Выключенный CLI не читает credentials/config/event и не делает API-запросов. Явный `--bootstrap` требует credential независимо от activation; own presets и protection подготавливает владелец до runtime merge, включение выполняет отдельной командой. См. [порядок настройки](docs/renovate-policy.md).
+
+Проверка `api` устойчива к публикации тега во время CI: release-коммит сравнивается
+с предыдущим выпуском, удалённый тег проверяется по commit до и после `gorelease`.
+Подробности и границы исключения — [docs/releasing.md](docs/releasing.md#проверка-версии-в-ci-fin-264).
