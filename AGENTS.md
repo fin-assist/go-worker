@@ -39,12 +39,12 @@ for itself: what it does, its YouTrack issue, which services use it.
 | Integration guide for services | `README.md`, «Внедрение» |
 | Versions, compatibility, releases, Renovate | `docs/releasing.md`, `CHANGELOG.md`, `.github/workflows/release.yml`, `renovate.json` |
 | Independent statements coverage guards and changelog checks | `scripts/` |
-| CI, lint | `.github/workflows/ci.yml`, `.golangci.yml`, `.squawk.toml`, `Makefile` |
+| CI, lint | `.github/workflows/ci.yml`, `.finassist-ci.json` (shared source and overrides), `Makefile` |
 | PR review by Claude | `.github/workflows/claude.yml` |
 
 ### Stack
 
-Go standard library only. Go/compiler, pinned analyzer, linter and gorelease versions are in go.mod/Makefile/CI.
+Go standard library only. Go/compiler and analyzer versions remain in go.mod/Makefile; linter versions come from the pinned shared source common/versions.json, and gorelease remains in Makefile/shared-api.yml.
 The module has no PostgreSQL helper or SQL. Existing Python CI/release/coverage regressions remain mandatory.
 
 ## Build in an agent container
@@ -107,7 +107,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   `promhttp.HandlerFor`, `InstrumentMetricHandler(reg, …)`, methods of a passed `*slog.Logger`, `Registerer`,
   `*http.Client`, `TracerProvider` or `MeterProvider`. Other ways to reach process-wide state are not lint rules and
   are not review findings about lint bypasses; review checks the principle itself.
-  `scripts/test_lint_policy.py` runs the pinned linter (version from `Makefile`, equal to `ci.yml`) on a hermetic probe
+  `scripts/test_lint_policy.py` runs the pinned linter (`common/versions.json` at the manifest SHA) on a hermetic probe
   module, for linux and windows: every forbidden and allowed form, chains such as
   `prometheus.DefaultRegisterer.MustRegister(c)` or `log.Default().Printf` and an aliased import are reported by their
   first identifier. The probe's versions follow one rule (`expected_pin`): a module in `go.mod` gets max(`go.mod`, its
@@ -403,3 +403,7 @@ FIN-211: dependency-only Renovate PRs may be merged/closed by the reviewed `reno
 - Only exact lowercase true admits the privileged controller job. Keep the independent gate free of secrets, Environment and checkout, with empty permissions.
 - Disabled ordinary CLI returns before credentials, files or API; explicit bootstrap remains credential-required and never activates automation.
 - Own preset bootstrap/protection is an owner operation before runtime merge. Activation requires a separate owner command; do not modify controller settings in this PR.
+
+## Shared Go CI (FIN-372)
+
+`.finassist-ci.json` pins `fin-assist/go-service-template` by full SHA and declares the lint profile/overrides. CI workflow calls use the same SHA. `make lint`, `make fmt`, `make lint-config` and `make lint-migrations BASE_REF=origin/main` resolve that source with `scripts/common_ci.py`; generated linter configs live in ignored `.finassist-ci/generated/`. Do not restore copied root linter configs. Preserve coverage/test/API/security gates and the bank-statement-data-only smallint exception. Update and rollback all pins in one PR. Details: https://github.com/fin-assist/go-service-template/blob/main/docs/shared-go-ci.md.
