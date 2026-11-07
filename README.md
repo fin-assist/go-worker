@@ -70,3 +70,7 @@ Renovate обновляет SHA workflows, входные `revision` и manifest
 
 Перед ревью применяются [профильные навыки](docs/review-skills/README.md) из проверяемой ревизии.
 Обязательные требования, выбор и ограничения — в `AGENTS.md`, раздел `Code Review Rules`.
+
+FIN-451: контроллер повторно проверяет свежесть перед quarantine/recovery и восстановлением
+уведомления/receipt сохранённого retry claim; поздний конфликт блокирует эти записи без сброса бюджета.
+Подробности — [политика Renovate](docs/renovate-policy.md).
